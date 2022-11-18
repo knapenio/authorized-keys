@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{BufRead, BufReader, Cursor},
     process,
@@ -23,6 +23,8 @@ enum Command {
     Push,
     /// Pull the authorized keys into the configuration file
     Pull,
+    /// Audit the authorized keys stored on remote servers
+    Audit,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -56,6 +58,12 @@ enum Error {
         user: String,
         path: String,
     },
+    #[error("audit failed for {path} (via {user}@{hostname})")]
+    AuditFailed {
+        hostname: String,
+        user: String,
+        path: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -64,6 +72,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Push => push_config(cli.config)?,
         Command::Pull => pull_config(cli.config)?,
+        Command::Audit => audit_config(cli.config)?,
     }
 
     Ok(())
@@ -101,6 +110,42 @@ fn pull_config(path: String) -> Result<()> {
     }
 
     write_config(path, &config)?;
+
+    Ok(())
+}
+
+fn audit_config(path: String) -> Result<()> {
+    let config = read_config(path)?;
+
+    for (hostname, users) in config.hosts {
+        for user in users {
+            let authorized_keys = read_authorized_keys(
+                hostname.clone(),
+                user.name.clone(),
+                user.identity_file.clone(),
+            )?;
+            let authorized_keys: HashSet<_> = authorized_keys.into_iter().collect();
+            let known_keys: HashSet<_> = user.authorized_keys.into_iter().collect();
+            let unknown_keys: HashSet<_> = authorized_keys.difference(&known_keys).collect();
+            let missing_keys: HashSet<_> = known_keys.difference(&authorized_keys).collect();
+
+            if !unknown_keys.is_empty() || !missing_keys.is_empty() {
+                for unknown_key in &unknown_keys {
+                    eprintln!("found unknown key {}", unknown_key);
+                }
+
+                for missing_key in &missing_keys {
+                    eprintln!("found missing key {}", missing_key);
+                }
+
+                return Err(Error::AuditFailed {
+                    hostname: hostname.clone(),
+                    user: user.name.clone(),
+                    path: user.identity_file.clone(),
+                })?;
+            }
+        }
+    }
 
     Ok(())
 }
