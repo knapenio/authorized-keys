@@ -1,12 +1,14 @@
+mod key;
 mod ssh;
 
 use crate::ssh::SshConnection;
 use clap::{Parser, Subcommand};
+use key::AuthorizedKeys;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs::File,
-    io::{BufRead, BufReader, Cursor},
+    io::{BufReader, Cursor},
 };
 
 type Result<T> = std::result::Result<T, anyhow::Error>;
@@ -38,7 +40,7 @@ struct Config {
 struct Item {
     user: String,
     path: String,
-    authorized_keys: Vec<String>,
+    authorized_keys: AuthorizedKeys,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -48,9 +50,9 @@ enum Error {
     #[error("failed to write config file {path}")]
     WriteConfig { path: String },
     #[error("failed to read authorized keys")]
-    ReadAuthorizedKeys(#[source] ssh::Error),
+    ReadAuthorizedKeys(#[source] anyhow::Error),
     #[error("failed to write authorized keys")]
-    WriteAuthorizedKeys(#[source] ssh::Error),
+    WriteAuthorizedKeys(#[source] anyhow::Error),
     #[error("audit failed for {path} (via {user}@{hostname})")]
     AuditFailed {
         hostname: String,
@@ -107,17 +109,16 @@ fn audit_config(path: String) -> Result<()> {
         for item in items {
             let connection = SshConnection::new(hostname.clone(), item.user.clone());
             let authorized_keys = read_authorized_keys(connection, item.path.clone())?;
-            let authorized_keys: HashSet<_> = authorized_keys.into_iter().collect();
-            let known_keys: HashSet<_> = item.authorized_keys.into_iter().collect();
-            let unknown_keys: HashSet<_> = authorized_keys.difference(&known_keys).collect();
-            let missing_keys: HashSet<_> = known_keys.difference(&authorized_keys).collect();
+            let known_keys = item.authorized_keys;
+            let unknown_keys = authorized_keys.difference(&known_keys);
+            let missing_keys = known_keys.difference(&authorized_keys);
 
             if !unknown_keys.is_empty() || !missing_keys.is_empty() {
-                for unknown_key in &unknown_keys {
+                for unknown_key in unknown_keys {
                     eprintln!("found unknown key {}", unknown_key);
                 }
 
-                for missing_key in &missing_keys {
+                for missing_key in missing_keys {
                     eprintln!("found missing key {}", missing_key);
                 }
 
@@ -150,7 +151,7 @@ fn write_config(path: String, config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn read_authorized_keys(connection: SshConnection, path: String) -> Result<Vec<String>> {
+fn read_authorized_keys(connection: SshConnection, path: String) -> Result<AuthorizedKeys> {
     println!(
         "reading authorized keys from {} (via {})...",
         path, connection
@@ -158,37 +159,36 @@ fn read_authorized_keys(connection: SshConnection, path: String) -> Result<Vec<S
 
     let contents = connection
         .read_file(path.clone())
-        .map_err(Error::ReadAuthorizedKeys)?;
+        .map_err(|e| Error::ReadAuthorizedKeys(e.into()))?;
     let cursor = Cursor::new(contents);
-    let lines: Vec<_> = cursor
-        .lines()
-        .map(|res| res.unwrap())
-        .filter(|line| !line.is_empty())
-        .collect();
+    let authorized_keys = AuthorizedKeys::from_reader(cursor)?;
 
     println!(
         "successfully read {} authorized keys from {} (via {})",
-        lines.len(),
+        authorized_keys.len(),
         path,
         connection
     );
 
-    Ok(lines)
+    Ok(authorized_keys)
 }
 
 fn write_authorized_keys(
     connection: SshConnection,
     path: String,
-    authorized_keys: Vec<String>,
+    authorized_keys: AuthorizedKeys,
 ) -> Result<()> {
     println!(
         "writing authorized keys to {} (via {})...",
         path, connection
     );
 
+    let mut text = String::new();
+    authorized_keys.to_writer(&mut text)?;
+
     connection
-        .write_file(path.clone(), authorized_keys.join("\n"))
-        .map_err(Error::WriteAuthorizedKeys)?;
+        .write_file(path.clone(), text)
+        .map_err(|e| Error::WriteAuthorizedKeys(e.into()))?;
 
     println!(
         "successfully wrote {} authorized keys to {} (via {})",
