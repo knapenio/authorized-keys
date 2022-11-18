@@ -122,9 +122,9 @@ fn audit_config(path: String) -> Result<()> {
                 }
 
                 return Err(Error::AuditFailed {
-                    hostname: hostname.clone(),
-                    user: item.user.clone(),
-                    path: item.path.clone(),
+                    hostname,
+                    user: item.user,
+                    path: item.path,
                 })?;
             }
         }
