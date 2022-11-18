@@ -27,14 +27,13 @@ enum Command {
 
 #[derive(Deserialize, Serialize)]
 struct Config {
-    hosts: HashMap<String, Vec<User>>,
+    hosts: HashMap<String, Vec<Item>>,
 }
 
 #[derive(Deserialize, Serialize)]
-struct User {
-    #[serde(rename = "user")]
-    name: String,
-    identity_file: String,
+struct Item {
+    user: String,
+    path: String,
     authorized_keys: Vec<String>,
 }
 
@@ -72,14 +71,9 @@ fn main() -> Result<()> {
 fn push_config(path: String) -> Result<()> {
     let config = read_config(path)?;
 
-    for (hostname, users) in config.hosts {
-        for user in users {
-            write_authorized_keys(
-                hostname.clone(),
-                user.name,
-                user.identity_file,
-                user.authorized_keys,
-            )?;
+    for (hostname, items) in config.hosts {
+        for item in items {
+            write_authorized_keys(hostname.clone(), item.user, item.path, item.authorized_keys)?;
         }
     }
 
@@ -89,14 +83,11 @@ fn push_config(path: String) -> Result<()> {
 fn pull_config(path: String) -> Result<()> {
     let mut config = read_config(path.clone())?;
 
-    for (hostname, users) in config.hosts.iter_mut() {
-        for user in users {
-            let authorized_keys = read_authorized_keys(
-                hostname.clone(),
-                user.name.clone(),
-                user.identity_file.clone(),
-            )?;
-            user.authorized_keys = authorized_keys;
+    for (hostname, items) in config.hosts.iter_mut() {
+        for item in items {
+            let authorized_keys =
+                read_authorized_keys(hostname.clone(), item.user.clone(), item.path.clone())?;
+            item.authorized_keys = authorized_keys;
         }
     }
 
@@ -122,12 +113,8 @@ fn write_config(path: String, config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn read_authorized_keys(
-    hostname: String,
-    user: String,
-    identity_file: String,
-) -> Result<Vec<String>> {
-    let command = format!("cat \"{}\"", identity_file);
+fn read_authorized_keys(hostname: String, user: String, path: String) -> Result<Vec<String>> {
+    let command = format!("cat \"{}\"", path);
 
     let output = process::Command::new("ssh")
         .arg(format!("{}@{}", user, hostname))
@@ -136,12 +123,12 @@ fn read_authorized_keys(
         .map_err(|_| Error::FailedToReadAuthorizedKeys {
             hostname: hostname.clone(),
             user: user.clone(),
-            path: identity_file.clone(),
+            path: path.clone(),
         })?;
 
     println!(
         "successfully read authorized keys from {} (via {}@{})",
-        identity_file, user, hostname
+        path, user, hostname
     );
 
     let cursor = Cursor::new(output.stdout);
@@ -157,12 +144,12 @@ fn read_authorized_keys(
 fn write_authorized_keys(
     hostname: String,
     user: String,
-    identity_file: String,
+    path: String,
     authorized_keys: Vec<String>,
 ) -> Result<()> {
     let command = format!(
         "cat > \"{}\" <<EOT\n{}\nEOT",
-        identity_file,
+        path,
         authorized_keys.join("\n")
     );
 
@@ -175,14 +162,14 @@ fn write_authorized_keys(
         Ok(status) if status.success() => {
             println!(
                 "successfully wrote authorized keys to {} (via {}@{})",
-                identity_file, user, hostname
+                path, user, hostname
             )
         }
         _ => {
             return Err(Error::FailedToWriteAuthorizedKeys {
                 hostname,
                 user,
-                path: identity_file,
+                path: path,
             })?
         }
     };

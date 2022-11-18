@@ -29,22 +29,22 @@ Options:
 hosts:
   example.com:
   - user: test
-    identity_file: /home/test/.ssh/authorized_keys
+    path: /home/test/.ssh/authorized_keys
     authorized_keys:
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCd... user@host
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC2...
   bastion.my:
   - user: root
-    identity_file: /root/.ssh/authorized_keys
+    path: /root/.ssh/authorized_keys
     authorized_keys:
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCf...
   - user: root
-    identity_file: /home/foo/.ssh/authorized_keys
+    path: /home/foo/.ssh/authorized_keys
     authorized_keys:
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCa...
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCb...
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCc...
   - user: root
-    identity_file: /home/bar/.ssh/authorized_keys
+    path: /home/bar/.ssh/authorized_keys
     authorized_keys: []
 ```
