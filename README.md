@@ -1,6 +1,6 @@
 # authorized-keys
 
-Configuration based management of SSH authorized keys.
+Configuration file based management of SSH authorized keys, via SSH.
 
 ## Usage
 
@@ -14,12 +14,13 @@ authorized-keys --help
 Usage: authorized-keys --config <CONFIG> <COMMAND>
 
 Commands:
-  push  Push the authorized keys defined in the configuration file
-  pull  Pull the authorized keys into the configuration file
-  help  Print this message or the help of the given subcommand(s)
+  push   Push the authorized keys defined in the configuration file
+  pull   Pull the authorized keys into the configuration file
+  audit  Audit the authorized keys stored on remote servers
+  help   Print this message or the help of the given subcommand(s)
 
 Options:
-  -c, --config <CONFIG>
+  -c, --config <CONFIG>  
   -h, --help             Print help information
 ```
 
