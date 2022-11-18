@@ -79,7 +79,7 @@ fn push_config(path: String) -> Result<()> {
     for (hostname, items) in config.hosts {
         for item in items {
             let connection = SshConnection::new(hostname.clone(), item.user);
-            write_authorized_keys(connection, item.path, item.authorized_keys)?;
+            write_authorized_keys(&connection, item.path, item.authorized_keys)?;
         }
     }
 
@@ -92,7 +92,7 @@ fn pull_config(path: String) -> Result<()> {
     for (hostname, items) in config.hosts.iter_mut() {
         for item in items {
             let connection = SshConnection::new(hostname.clone(), item.user.clone());
-            let authorized_keys = read_authorized_keys(connection, item.path.clone())?;
+            let authorized_keys = read_authorized_keys(&connection, item.path.clone())?;
             item.authorized_keys = authorized_keys;
         }
     }
@@ -108,7 +108,10 @@ fn audit_config(path: String) -> Result<()> {
     for (hostname, items) in config.hosts {
         for item in items {
             let connection = SshConnection::new(hostname.clone(), item.user.clone());
-            let authorized_keys = read_authorized_keys(connection, item.path.clone())?;
+            let authorized_keys = read_authorized_keys(&connection, item.path.clone())?;
+
+            println!("Auditing {} (via {})...", item.path, connection);
+
             let known_keys = item.authorized_keys;
             let unknown_keys = authorized_keys.difference(&known_keys);
             let missing_keys = known_keys.difference(&authorized_keys);
@@ -127,6 +130,8 @@ fn audit_config(path: String) -> Result<()> {
                     user: item.user,
                     path: item.path,
                 })?;
+            } else {
+                println!("OK");
             }
         }
     }
@@ -135,23 +140,31 @@ fn audit_config(path: String) -> Result<()> {
 }
 
 fn read_config(path: String) -> Result<Config> {
+    println!("reading configuration file {}... ", path);
+
     let file = File::open(&path)?;
     let config =
         serde_yaml::from_reader(BufReader::new(file)).map_err(|_| Error::ReadConfig { path })?;
+
+    println!("OK");
     Ok(config)
 }
 
 fn write_config(path: String, config: &Config) -> Result<()> {
+    println!("writing configuration file {}... ", path);
+
     let file = File::options()
         .write(true)
         .truncate(true)
         .create(true)
         .open(&path)?;
     serde_yaml::to_writer(file, config).map_err(|_| Error::WriteConfig { path })?;
+
+    println!("OK");
     Ok(())
 }
 
-fn read_authorized_keys(connection: SshConnection, path: String) -> Result<AuthorizedKeys> {
+fn read_authorized_keys(connection: &SshConnection, path: String) -> Result<AuthorizedKeys> {
     println!(
         "reading authorized keys from {} (via {})...",
         path, connection
@@ -174,7 +187,7 @@ fn read_authorized_keys(connection: SshConnection, path: String) -> Result<Autho
 }
 
 fn write_authorized_keys(
-    connection: SshConnection,
+    connection: &SshConnection,
     path: String,
     authorized_keys: AuthorizedKeys,
 ) -> Result<()> {
