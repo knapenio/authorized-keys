@@ -1,10 +1,12 @@
+mod ssh;
+
+use crate::ssh::SshConnection;
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
     io::{BufRead, BufReader, Cursor},
-    process,
 };
 
 type Result<T> = std::result::Result<T, anyhow::Error>;
@@ -29,35 +31,26 @@ enum Command {
 
 #[derive(Deserialize, Serialize)]
 struct Config {
-    hosts: HashMap<String, Vec<User>>,
+    hosts: HashMap<String, Vec<Item>>,
 }
 
 #[derive(Deserialize, Serialize)]
-struct User {
-    #[serde(rename = "user")]
-    name: String,
-    identity_file: String,
+struct Item {
+    user: String,
+    path: String,
     authorized_keys: Vec<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
 enum Error {
     #[error("failed to read config file {path}")]
-    FailedToReadConfig { path: String },
+    ReadConfig { path: String },
     #[error("failed to write config file {path}")]
-    FailedToWriteConfig { path: String },
-    #[error("failed to read authorized keys from {path} (via {user}@{hostname})")]
-    FailedToReadAuthorizedKeys {
-        hostname: String,
-        user: String,
-        path: String,
-    },
-    #[error("failed to write authorized keys to {path} (via {user}@{hostname})")]
-    FailedToWriteAuthorizedKeys {
-        hostname: String,
-        user: String,
-        path: String,
-    },
+    WriteConfig { path: String },
+    #[error("failed to read authorized keys")]
+    ReadAuthorizedKeys(#[source] ssh::Error),
+    #[error("failed to write authorized keys")]
+    WriteAuthorizedKeys(#[source] ssh::Error),
     #[error("audit failed for {path} (via {user}@{hostname})")]
     AuditFailed {
         hostname: String,
@@ -81,14 +74,10 @@ fn main() -> Result<()> {
 fn push_config(path: String) -> Result<()> {
     let config = read_config(path)?;
 
-    for (hostname, users) in config.hosts {
-        for user in users {
-            write_authorized_keys(
-                hostname.clone(),
-                user.name,
-                user.identity_file,
-                user.authorized_keys,
-            )?;
+    for (hostname, items) in config.hosts {
+        for item in items {
+            let connection = SshConnection::new(hostname.clone(), item.user);
+            write_authorized_keys(connection, item.path, item.authorized_keys)?;
         }
     }
 
@@ -98,14 +87,11 @@ fn push_config(path: String) -> Result<()> {
 fn pull_config(path: String) -> Result<()> {
     let mut config = read_config(path.clone())?;
 
-    for (hostname, users) in config.hosts.iter_mut() {
-        for user in users {
-            let authorized_keys = read_authorized_keys(
-                hostname.clone(),
-                user.name.clone(),
-                user.identity_file.clone(),
-            )?;
-            user.authorized_keys = authorized_keys;
+    for (hostname, items) in config.hosts.iter_mut() {
+        for item in items {
+            let connection = SshConnection::new(hostname.clone(), item.user.clone());
+            let authorized_keys = read_authorized_keys(connection, item.path.clone())?;
+            item.authorized_keys = authorized_keys;
         }
     }
 
@@ -117,15 +103,12 @@ fn pull_config(path: String) -> Result<()> {
 fn audit_config(path: String) -> Result<()> {
     let config = read_config(path)?;
 
-    for (hostname, users) in config.hosts {
-        for user in users {
-            let authorized_keys = read_authorized_keys(
-                hostname.clone(),
-                user.name.clone(),
-                user.identity_file.clone(),
-            )?;
+    for (hostname, items) in config.hosts {
+        for item in items {
+            let connection = SshConnection::new(hostname.clone(), item.user.clone());
+            let authorized_keys = read_authorized_keys(connection, item.path.clone())?;
             let authorized_keys: HashSet<_> = authorized_keys.into_iter().collect();
-            let known_keys: HashSet<_> = user.authorized_keys.into_iter().collect();
+            let known_keys: HashSet<_> = item.authorized_keys.into_iter().collect();
             let unknown_keys: HashSet<_> = authorized_keys.difference(&known_keys).collect();
             let missing_keys: HashSet<_> = known_keys.difference(&authorized_keys).collect();
 
@@ -140,8 +123,8 @@ fn audit_config(path: String) -> Result<()> {
 
                 return Err(Error::AuditFailed {
                     hostname: hostname.clone(),
-                    user: user.name.clone(),
-                    path: user.identity_file.clone(),
+                    user: item.user.clone(),
+                    path: item.path.clone(),
                 })?;
             }
         }
@@ -152,8 +135,8 @@ fn audit_config(path: String) -> Result<()> {
 
 fn read_config(path: String) -> Result<Config> {
     let file = File::open(&path)?;
-    let config = serde_yaml::from_reader(BufReader::new(file))
-        .map_err(|_| Error::FailedToReadConfig { path })?;
+    let config =
+        serde_yaml::from_reader(BufReader::new(file)).map_err(|_| Error::ReadConfig { path })?;
     Ok(config)
 }
 
@@ -163,74 +146,56 @@ fn write_config(path: String, config: &Config) -> Result<()> {
         .truncate(true)
         .create(true)
         .open(&path)?;
-    serde_yaml::to_writer(file, config).map_err(|_| Error::FailedToWriteConfig { path })?;
+    serde_yaml::to_writer(file, config).map_err(|_| Error::WriteConfig { path })?;
     Ok(())
 }
 
-fn read_authorized_keys(
-    hostname: String,
-    user: String,
-    identity_file: String,
-) -> Result<Vec<String>> {
-    let command = format!("cat \"{}\"", identity_file);
-
-    let output = process::Command::new("ssh")
-        .arg(format!("{}@{}", user, hostname))
-        .arg(command)
-        .output()
-        .map_err(|_| Error::FailedToReadAuthorizedKeys {
-            hostname: hostname.clone(),
-            user: user.clone(),
-            path: identity_file.clone(),
-        })?;
-
+fn read_authorized_keys(connection: SshConnection, path: String) -> Result<Vec<String>> {
     println!(
-        "successfully read authorized keys from {} (via {}@{})",
-        identity_file, user, hostname
+        "reading authorized keys from {} (via {})...",
+        path, connection
     );
 
-    let cursor = Cursor::new(output.stdout);
-    let lines = cursor.lines();
-
-    Ok(lines
-        .into_iter()
-        .map(|res| res.unwrap_or_default())
+    let contents = connection
+        .read_file(path.clone())
+        .map_err(Error::ReadAuthorizedKeys)?;
+    let cursor = Cursor::new(contents);
+    let lines: Vec<_> = cursor
+        .lines()
+        .map(|res| res.unwrap())
         .filter(|line| !line.is_empty())
-        .collect())
+        .collect();
+
+    println!(
+        "successfully read {} authorized keys from {} (via {})",
+        lines.len(),
+        path,
+        connection
+    );
+
+    Ok(lines)
 }
 
 fn write_authorized_keys(
-    hostname: String,
-    user: String,
-    identity_file: String,
+    connection: SshConnection,
+    path: String,
     authorized_keys: Vec<String>,
 ) -> Result<()> {
-    let command = format!(
-        "cat > \"{}\" <<EOT\n{}\nEOT",
-        identity_file,
-        authorized_keys.join("\n")
+    println!(
+        "writing authorized keys to {} (via {})...",
+        path, connection
     );
 
-    let status = process::Command::new("ssh")
-        .arg(format!("{}@{}", user, hostname))
-        .arg(command)
-        .status();
+    connection
+        .write_file(path.clone(), authorized_keys.join("\n"))
+        .map_err(Error::WriteAuthorizedKeys)?;
 
-    match status {
-        Ok(status) if status.success() => {
-            println!(
-                "successfully wrote authorized keys to {} (via {}@{})",
-                identity_file, user, hostname
-            )
-        }
-        _ => {
-            return Err(Error::FailedToWriteAuthorizedKeys {
-                hostname,
-                user,
-                path: identity_file,
-            })?
-        }
-    };
+    println!(
+        "successfully wrote {} authorized keys to {} (via {})",
+        authorized_keys.len(),
+        path,
+        connection
+    );
 
     Ok(())
 }
