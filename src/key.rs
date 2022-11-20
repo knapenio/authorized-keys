@@ -234,4 +234,38 @@ mod tests {
 
     #[test]
     fn authorized_keys_difference() {}
+
+    #[test]
+    fn read_authorized_keys() {
+        let cursor = Cursor::new("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3=\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg=\n\n");
+        let authorized_keys = AuthorizedKeys::from_reader(cursor).unwrap();
+
+        assert_eq!(
+            authorized_keys.0,
+            vec![
+                "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3="
+                    .parse()
+                    .unwrap(),
+                "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg="
+                    .parse()
+                    .unwrap()
+            ]
+        );
+    }
+
+    #[test]
+    fn write_authorized_keys() {
+        let authorized_keys = AuthorizedKeys(vec![
+            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg="
+                .parse()
+                .unwrap(),
+            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3="
+                .parse()
+                .unwrap(),
+        ]);
+
+        let mut output = String::new();
+        authorized_keys.to_writer(&mut output).unwrap();
+        assert_eq!(output.as_str(), "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg=\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3=\n");
+    }
 }
