@@ -5,8 +5,8 @@ use std::{
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("SSH command failed: {command}")]
-    CommandFailed { command: String },
+    #[error("SSH command failed: {command} ({error})")]
+    CommandFailed { command: String, error: String },
     #[error("SSH failed to read file {path}")]
     ReadFile { path: String },
     #[error("SSH failed to write file {path}")]
@@ -30,12 +30,16 @@ impl SshConnection {
             .arg(format!("{}@{}", self.user, self.hostname))
             .arg(&command)
             .output()
-            .map_err(|_| Error::CommandFailed {
+            .map_err(|e| Error::CommandFailed {
                 command: command.clone(),
+                error: e.to_string(),
             })?;
 
         if !output.status.success() {
-            return Err(Error::CommandFailed { command });
+            return Err(Error::CommandFailed {
+                command,
+                error: String::from_utf8(output.stderr).unwrap_or_default(),
+            });
         }
 
         Ok(output)
