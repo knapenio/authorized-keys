@@ -20,6 +20,7 @@ impl FromStr for PublicKey {
     type Err = Infallible;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        // this is a naive implementation that does not perform any checks on the input string
         Ok(PublicKey(s.to_owned()))
     }
 }
