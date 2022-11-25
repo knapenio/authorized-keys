@@ -20,7 +20,7 @@ Commands:
   help   Print this message or the help of the given subcommand(s)
 
 Options:
-  -c, --config <CONFIG>  
+  -c, --config <CONFIG>
   -h, --help             Print help information
 ```
 
@@ -32,20 +32,25 @@ hosts:
   - user: test
     path: /home/test/.ssh/authorized_keys
     authorized_keys:
+    - @deploy-bot
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCd... user@host
-    - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC2...
   bastion.my:
   - user: root
     path: /root/.ssh/authorized_keys
     authorized_keys:
+    - @deploy-bot
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCf...
   - user: root
     path: /home/foo/.ssh/authorized_keys
     authorized_keys:
+    - @deploy-bot
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCa...
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCb...
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCc...
   - user: root
     path: /home/bar/.ssh/authorized_keys
     authorized_keys: []
+identities:
+  deploy-bot:
+  - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC2...
 ```

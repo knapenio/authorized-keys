@@ -1,9 +1,10 @@
-mod key;
+mod authorized_keys;
+mod identity;
+mod public_key;
 mod ssh;
 
-use crate::ssh::SshConnection;
+use crate::{authorized_keys::AuthorizedKeys, identity::Identities, ssh::SshConnection};
 use clap::{Parser, Subcommand};
-use key::AuthorizedKeys;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -34,6 +35,7 @@ enum Command {
 #[derive(Deserialize, Serialize)]
 struct Config {
     hosts: HashMap<String, Vec<Item>>,
+    identities: Option<Identities>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -76,10 +78,14 @@ fn main() -> Result<()> {
 fn push_config(path: String) -> Result<()> {
     let config = read_config(path)?;
 
+    let identities = config.identities.unwrap_or_default();
+
     for (hostname, items) in config.hosts {
         for item in items {
-            let connection = SshConnection::new(hostname.clone(), item.user);
-            write_authorized_keys(&connection, item.path, item.authorized_keys)?;
+            let connection = SshConnection::new(hostname.clone(), item.user.clone());
+            let authorized_keys = item.authorized_keys;
+            println!("{}: {:?}", connection, authorized_keys);
+            // write_authorized_keys(&connection, item.path, authorized_keys, Some(&identities))?;
         }
     }
 
@@ -179,7 +185,7 @@ fn read_authorized_keys(connection: &SshConnection, path: String) -> Result<Auth
         .read_file(path.clone())
         .map_err(|e| Error::ReadAuthorizedKeys(e.into()))?;
     let cursor = Cursor::new(contents);
-    let authorized_keys = AuthorizedKeys::from_reader(cursor)?;
+    let authorized_keys = AuthorizedKeys::from_reader(cursor, None)?;
 
     println!(
         "successfully read {} authorized keys from {} (via {})",
@@ -195,6 +201,7 @@ fn write_authorized_keys(
     connection: &SshConnection,
     path: String,
     authorized_keys: AuthorizedKeys,
+    identities: Option<&Identities>,
 ) -> Result<()> {
     println!(
         "writing authorized keys to {} (via {})...",
@@ -202,7 +209,7 @@ fn write_authorized_keys(
     );
 
     let mut text = String::new();
-    authorized_keys.to_writer(&mut text)?;
+    authorized_keys.to_writer(&mut text, identities)?;
 
     connection
         .write_file(path.clone(), text)
