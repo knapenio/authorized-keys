@@ -32,18 +32,18 @@ hosts:
   - user: test
     path: /home/test/.ssh/authorized_keys
     authorized_keys:
-    - @deploy-bot
+    - '@deploy-bot'
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCd... user@host
   bastion.my:
   - user: root
     path: /root/.ssh/authorized_keys
     authorized_keys:
-    - @deploy-bot
+    - '@deploy-bot'
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCf...
   - user: root
     path: /home/foo/.ssh/authorized_keys
     authorized_keys:
-    - @deploy-bot
+    - '@deploy-bot'
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCa...
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCb...
     - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCc...
