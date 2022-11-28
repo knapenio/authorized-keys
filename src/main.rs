@@ -1,9 +1,11 @@
+mod authorized_items;
 mod authorized_keys;
 mod identity;
 mod public_key;
 mod ssh;
 
 use crate::{authorized_keys::AuthorizedKeys, identity::Identities, ssh::SshConnection};
+use authorized_items::{AuthorizedItem, AuthorizedItems};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -42,7 +44,8 @@ struct Config {
 struct Item {
     user: String,
     path: String,
-    authorized_keys: AuthorizedKeys,
+    #[serde(rename = "authorized_keys")]
+    authorized_items: AuthorizedItems,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -83,9 +86,8 @@ fn push_config(path: String) -> Result<()> {
     for (hostname, items) in config.hosts {
         for item in items {
             let connection = SshConnection::new(hostname.clone(), item.user.clone());
-            let authorized_keys = item.authorized_keys;
-            println!("{}: {:?}", connection, authorized_keys);
-            // write_authorized_keys(&connection, item.path, authorized_keys, Some(&identities))?;
+            let authorized_keys = item.collect_authorized_keys(&identities);
+            write_authorized_keys(&connection, item.path, authorized_keys)?;
         }
     }
 
@@ -95,11 +97,13 @@ fn push_config(path: String) -> Result<()> {
 fn pull_config(path: String) -> Result<()> {
     let mut config = read_config(path.clone())?;
 
+    let identities = config.identities.clone().unwrap_or_default();
+
     for (hostname, items) in config.hosts.iter_mut() {
         for item in items {
             let connection = SshConnection::new(hostname.clone(), item.user.clone());
             let authorized_keys = read_authorized_keys(&connection, item.path.clone())?;
-            item.authorized_keys = authorized_keys;
+            item.set_authorized_items(authorized_keys, &identities);
         }
     }
 
@@ -111,6 +115,8 @@ fn pull_config(path: String) -> Result<()> {
 fn audit_config(path: String) -> Result<()> {
     let config = read_config(path)?;
 
+    let identities = config.identities.unwrap_or_default();
+
     for (hostname, items) in config.hosts {
         for item in items {
             let connection = SshConnection::new(hostname.clone(), item.user.clone());
@@ -118,7 +124,7 @@ fn audit_config(path: String) -> Result<()> {
             println!("Auditing {} (via {})...", item.path, connection);
 
             let authorized_keys = read_authorized_keys(&connection, item.path.clone())?;
-            let known_keys = item.authorized_keys;
+            let known_keys = item.collect_authorized_keys(&identities);
             let unknown_keys = authorized_keys.difference(&known_keys);
             let missing_keys = known_keys.difference(&authorized_keys);
 
@@ -185,7 +191,7 @@ fn read_authorized_keys(connection: &SshConnection, path: String) -> Result<Auth
         .read_file(path.clone())
         .map_err(|e| Error::ReadAuthorizedKeys(e.into()))?;
     let cursor = Cursor::new(contents);
-    let authorized_keys = AuthorizedKeys::from_reader(cursor, None)?;
+    let authorized_keys = AuthorizedKeys::from_reader(cursor)?;
 
     println!(
         "successfully read {} authorized keys from {} (via {})",
@@ -201,7 +207,6 @@ fn write_authorized_keys(
     connection: &SshConnection,
     path: String,
     authorized_keys: AuthorizedKeys,
-    identities: Option<&Identities>,
 ) -> Result<()> {
     println!(
         "writing authorized keys to {} (via {})...",
@@ -209,7 +214,7 @@ fn write_authorized_keys(
     );
 
     let mut text = String::new();
-    authorized_keys.to_writer(&mut text, identities)?;
+    authorized_keys.to_writer(&mut text)?;
 
     connection
         .write_file(path.clone(), text)
@@ -223,4 +228,28 @@ fn write_authorized_keys(
     );
 
     Ok(())
+}
+
+impl Item {
+    pub fn collect_authorized_keys(&self, identities: &Identities) -> AuthorizedKeys {
+        self.authorized_items.collect_authorized_keys(identities)
+    }
+
+    pub fn set_authorized_items(
+        &mut self,
+        authorized_keys: AuthorizedKeys,
+        identities: &Identities,
+    ) {
+        let mut authorized_items = AuthorizedItems::default();
+
+        for key in authorized_keys {
+            if let Some(identity) = identities.identity_for_key(&key) {
+                authorized_items.push(AuthorizedItem::Identity(identity));
+            } else {
+                authorized_items.push(AuthorizedItem::PublicKey(key));
+            }
+        }
+
+        self.authorized_items = authorized_items;
+    }
 }

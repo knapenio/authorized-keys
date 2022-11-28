@@ -1,30 +1,19 @@
-use crate::{
-    identity::{Identities, Identity},
-    public_key::PublicKey,
-};
+use crate::public_key::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 use std::io::BufRead;
-use std::str::FromStr;
 
 type Result<T> = std::result::Result<T, anyhow::Error>;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(untagged)]
-enum Item {
-    Identity(Identity),
-    PublicKey(PublicKey),
-}
-
 // we're using a `Vec` instead of a `HashSet` for storage
 // because we want to maintain any ordering of the authorized keys
-#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug, Eq, PartialEq)]
 #[serde(transparent)]
 pub struct AuthorizedKeys(Vec<PublicKey>);
 
 impl AuthorizedKeys {
     /// Read the authorized keys using `reader`.
-    pub fn from_reader<R>(reader: R, identities: Option<&Identities>) -> Result<Self>
+    pub fn from_reader<R>(reader: R) -> Result<Self>
     where
         R: BufRead,
     {
@@ -37,19 +26,8 @@ impl AuthorizedKeys {
                         continue;
                     }
 
-                    let item: Item = line.parse()?;
-
-                    match item {
-                        Item::Identity(identity) => {
-                            let keys = identities
-                                .and_then(|identities| identities.keys_for_identity(&identity))
-                                .ok_or(ParseItemError)?; // TODO: return correct error
-                            for key in keys {
-                                authorized_keys.push(key);
-                            }
-                        }
-                        Item::PublicKey(key) => authorized_keys.push(key),
-                    }
+                    let key: PublicKey = line.parse()?;
+                    authorized_keys.push(key)
                 }
                 Err(e) => return Err(e)?,
             }
@@ -59,19 +37,19 @@ impl AuthorizedKeys {
     }
 
     /// Write the authorized keys using `writer`.
-    pub fn to_writer<W>(&self, writer: &mut W, identities: Option<&Identities>) -> Result<()>
+    pub fn to_writer<W>(&self, writer: &mut W) -> Result<()>
     where
         W: Write,
     {
         for key in &self.0 {
-            writeln!(writer, "{}", key.to_string())?;
+            writeln!(writer, "{}", key)?;
         }
 
         Ok(())
     }
 
     /// Appends a key to the authorized keys.
-    fn push(&mut self, key: PublicKey) {
+    pub fn push(&mut self, key: PublicKey) {
         self.0.push(key)
     }
 
@@ -87,27 +65,26 @@ impl AuthorizedKeys {
 
     /// Returns `true` if the authorized keys contains the given key.
     pub fn contains(&self, key: &PublicKey) -> bool {
-        self.0
-            .iter()
-            .any(|authorized| authorized.strip_comment() == key.strip_comment())
-    }
-
-    /// Returns a copy of `self` with any comments removed from the keys.
-    fn strip_comments(&self) -> AuthorizedKeys {
-        AuthorizedKeys(self.0.iter().map(PublicKey::strip_comment).collect())
+        self.0.contains(key)
     }
 
     /// Returns the difference, i.e., the keys that are in `self` but not in `other`.
     pub fn difference(&self, other: &AuthorizedKeys) -> AuthorizedKeys {
-        let other_stripped = other.strip_comments();
         let difference = self
             .0
             .iter()
-            .filter(|key| !other_stripped.contains(&key.strip_comment()))
+            .filter(|key| !other.contains(key))
             .cloned()
             .collect();
 
         AuthorizedKeys(difference)
+    }
+
+    /// Returns a sorted copy of `self`.
+    pub fn sorted(self) -> AuthorizedKeys {
+        let mut keys = self.0;
+        keys.sort();
+        AuthorizedKeys(keys)
     }
 }
 
@@ -120,24 +97,6 @@ impl IntoIterator for AuthorizedKeys {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-#[error("failed to parse item")]
-struct ParseItemError;
-
-impl FromStr for Item {
-    type Err = ParseItemError;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        if let Ok(identity) = s.parse::<Identity>() {
-            Ok(Item::Identity(identity))
-        } else if let Ok(key) = s.parse::<PublicKey>() {
-            Ok(Item::PublicKey(key))
-        } else {
-            Err(ParseItemError)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,7 +105,7 @@ mod tests {
     #[test]
     fn authorized_keys_contains() {
         let cursor = Cursor::new("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3=\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg=");
-        let authorized_keys = AuthorizedKeys::from_reader(cursor, None).unwrap();
+        let authorized_keys = AuthorizedKeys::from_reader(cursor).unwrap();
 
         assert!(authorized_keys.contains(
             &("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3="
@@ -183,7 +142,7 @@ mod tests {
     #[test]
     fn read_authorized_keys() {
         let cursor = Cursor::new("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3=\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg=\n\n");
-        let authorized_keys = AuthorizedKeys::from_reader(cursor, None).unwrap();
+        let authorized_keys = AuthorizedKeys::from_reader(cursor).unwrap();
 
         assert_eq!(
             authorized_keys.0,
@@ -210,7 +169,7 @@ mod tests {
         ]);
 
         let mut output = String::new();
-        authorized_keys.to_writer(&mut output, None).unwrap();
+        authorized_keys.to_writer(&mut output).unwrap();
         assert_eq!(output.as_str(), "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg=\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3=\n");
     }
 }

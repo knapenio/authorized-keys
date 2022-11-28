@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{self};
 use std::str::FromStr;
 
-#[derive(Serialize, Deserialize, Clone, Hash, Eq, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Hash, Eq, Debug, Ord, PartialOrd)]
 #[serde(transparent)]
 pub struct PublicKey(String);
 
@@ -20,6 +20,12 @@ impl FromStr for PublicKey {
         }
 
         Ok(PublicKey(s.to_owned()))
+    }
+}
+
+impl PartialEq for PublicKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.strip_comment().0 == other.strip_comment().0
     }
 }
 
