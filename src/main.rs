@@ -244,6 +244,8 @@ impl Item {
 
         for key in authorized_keys {
             if let Some(identity) = identities.identity_for_key(&key) {
+                // TODO: we should probably only add the full identity if all of its keys are present in `authorized_keys`
+                // otherwise we should only add this specific key
                 authorized_items.push(AuthorizedItem::Identity(identity));
             } else {
                 authorized_items.push(AuthorizedItem::PublicKey(key));
