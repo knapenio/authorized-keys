@@ -1,15 +1,14 @@
 use crate::public_key::PublicKey;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fmt::Write;
 use std::io::BufRead;
 
 type Result<T> = std::result::Result<T, anyhow::Error>;
 
-// we're using a `Vec` instead of a `HashSet` for storage
-// because we want to maintain any ordering of the authorized keys
 #[derive(Serialize, Deserialize, Clone, Default, Debug, Eq, PartialEq)]
 #[serde(transparent)]
-pub struct AuthorizedKeys(Vec<PublicKey>);
+pub struct AuthorizedKeys(HashSet<PublicKey>);
 
 impl AuthorizedKeys {
     /// Read the authorized keys using `reader`.
@@ -27,7 +26,7 @@ impl AuthorizedKeys {
                     }
 
                     let key: PublicKey = line.parse()?;
-                    authorized_keys.push(key)
+                    authorized_keys.insert(key)
                 }
                 Err(e) => return Err(e)?,
             }
@@ -41,16 +40,16 @@ impl AuthorizedKeys {
     where
         W: Write,
     {
-        for key in &self.0 {
+        for key in self.sorted_keys() {
             writeln!(writer, "{}", key)?;
         }
 
         Ok(())
     }
 
-    /// Appends a key to the authorized keys.
-    pub fn push(&mut self, key: PublicKey) {
-        self.0.push(key)
+    /// Add a key to the authorized keys.
+    pub fn insert(&mut self, key: PublicKey) {
+        self.0.insert(key);
     }
 
     /// Returns the number of keys in the authorized keys.
@@ -68,29 +67,46 @@ impl AuthorizedKeys {
         self.0.contains(key)
     }
 
-    /// Returns the difference, i.e., the keys that are in `self` but not in `other`.
+    /// Returns the difference,
+    /// i.e., the keys that are in `self` but not in `other`.
     pub fn difference(&self, other: &AuthorizedKeys) -> AuthorizedKeys {
-        let difference = self
-            .0
-            .iter()
-            .filter(|key| !other.contains(key))
-            .cloned()
-            .collect();
-
-        AuthorizedKeys(difference)
+        let keys = self.0.difference(&other.0).cloned().collect();
+        AuthorizedKeys(keys)
     }
 
-    /// Returns a sorted copy of `self`.
-    pub fn sorted(self) -> AuthorizedKeys {
-        let mut keys = self.0;
+    /// Returns `true` if `self` is a superset of another authorized keys,
+    /// i.e., `self` contains at least all keys in `other`.
+    pub fn is_superset(&self, other: &AuthorizedKeys) -> bool {
+        self.0.is_superset(&other.0)
+    }
+
+    fn sorted_keys(&self) -> Vec<&PublicKey> {
+        let mut keys: Vec<_> = self.0.iter().collect();
         keys.sort();
-        AuthorizedKeys(keys)
+        keys
+    }
+
+    /// An iterator visiting all keys in arbitrary order.
+    pub fn iter(&self) -> AuthorizedKeysIter {
+        AuthorizedKeysIter(self.0.iter())
+    }
+}
+
+use std::collections::hash_set;
+
+pub struct AuthorizedKeysIter<'a>(hash_set::Iter<'a, PublicKey>);
+
+impl<'a> Iterator for AuthorizedKeysIter<'a> {
+    type Item = &'a PublicKey;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
     }
 }
 
 impl IntoIterator for AuthorizedKeys {
     type Item = PublicKey;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+    type IntoIter = hash_set::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
@@ -146,30 +162,36 @@ mod tests {
 
         assert_eq!(
             authorized_keys.0,
-            vec![
-                "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3="
-                    .parse()
-                    .unwrap(),
-                "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg="
-                    .parse()
-                    .unwrap()
-            ]
+            HashSet::from_iter(
+                [
+                    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3="
+                        .parse()
+                        .unwrap(),
+                    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg="
+                        .parse()
+                        .unwrap()
+                ]
+                .into_iter()
+            )
         );
     }
 
     #[test]
     fn write_authorized_keys() {
-        let authorized_keys = AuthorizedKeys(vec![
-            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg="
-                .parse()
-                .unwrap(),
-            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3="
-                .parse()
-                .unwrap(),
-        ]);
+        let authorized_keys = AuthorizedKeys(HashSet::from_iter(
+            [
+                "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg="
+                    .parse()
+                    .unwrap(),
+                "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3="
+                    .parse()
+                    .unwrap(),
+            ]
+            .into_iter(),
+        ));
 
         let mut output = String::new();
         authorized_keys.to_writer(&mut output).unwrap();
-        assert_eq!(output.as_str(), "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg=\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3=\n");
+        assert_eq!(output.as_str(), "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3=\nssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mg=\n");
     }
 }

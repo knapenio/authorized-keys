@@ -1,10 +1,29 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::{self};
+use std::hash::Hash;
 use std::str::FromStr;
 
-#[derive(Serialize, Deserialize, Clone, Hash, Eq, Debug, Ord, PartialOrd)]
+#[derive(Serialize, Deserialize, Clone, Eq, Debug, Ord, PartialOrd)]
 #[serde(transparent)]
 pub struct PublicKey(String);
+
+impl PublicKey {
+    /// Strips the comment from this public key, if any.
+    fn strip_comment(&self) -> &str {
+        self.0
+            .match_indices(' ')
+            .nth(1)
+            .map_or(&self.0, |pos| &self.0[..pos.0])
+    }
+
+    /// Returns this public key's comment, if any.
+    pub fn comment(&self) -> Option<&str> {
+        self.0
+            .match_indices(' ')
+            .nth(1)
+            .map(|pos| &self.0[pos.0 + 1..])
+    }
+}
 
 #[derive(thiserror::Error, Debug)]
 #[error("failed to parse public key")]
@@ -25,31 +44,13 @@ impl FromStr for PublicKey {
 
 impl PartialEq for PublicKey {
     fn eq(&self, other: &Self) -> bool {
-        self.strip_comment().0 == other.strip_comment().0
+        self.strip_comment() == other.strip_comment()
     }
 }
 
-impl PublicKey {
-    pub fn new(key: String) -> Self {
-        PublicKey(key)
-    }
-
-    /// Returns this public key's comment, if any.
-    pub fn comment(&self) -> Option<&str> {
-        let split: Vec<_> = self.0.splitn(3, ' ').collect();
-        if split.len() != 3 {
-            return None;
-        }
-        Some(split[2])
-    }
-
-    /// Strips the comment from this public key.
-    pub fn strip_comment(&self) -> PublicKey {
-        let key = match self.0.match_indices(' ').nth(1) {
-            Some(pos) => &self.0[..pos.0],
-            _ => &self.0,
-        };
-        PublicKey(key.to_owned())
+impl Hash for PublicKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.strip_comment().hash(state)
     }
 }
 
@@ -66,14 +67,14 @@ mod tests {
     #[test]
     fn public_key_comment() {
         assert_eq!(
-            PublicKey::new(
+            PublicKey(
                 "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3eWCGNEO+FIx user@local".to_owned()
             )
             .comment(),
             Some("user@local")
         );
         assert_eq!(
-            PublicKey::new(
+            PublicKey(
                 "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3eWCGNEO+FIx random comment"
                     .to_owned()
             )
@@ -81,7 +82,7 @@ mod tests {
             Some("random comment")
         );
         assert_eq!(
-            PublicKey::new("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph3Mgju0wqHzXqX".to_owned())
+            PublicKey("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph3Mgju0wqHzXqX".to_owned())
                 .comment(),
             None
         );
@@ -90,30 +91,24 @@ mod tests {
     #[test]
     fn public_key_strip_comment() {
         assert_eq!(
-            PublicKey::new(
+            PublicKey(
                 "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3eWCGNEO+FOx user@local".to_owned()
             )
             .strip_comment(),
             "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3eWCGNEO+FOx"
-                .parse()
-                .unwrap()
         );
         assert_eq!(
-            PublicKey::new(
+            PublicKey(
                 "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3eWCGNEO+FIx random comment"
                     .to_owned()
             )
             .strip_comment(),
             "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCdWXdw3eWCGNEO+FIx"
-                .parse()
-                .unwrap()
         );
         assert_eq!(
-            PublicKey::new("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mgju0wqHzXqX".to_owned())
+            PublicKey("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mgju0wqHzXqX".to_owned())
                 .strip_comment(),
             "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC+Ph5Mgju0wqHzXqX"
-                .parse()
-                .unwrap()
         );
     }
 }

@@ -32,10 +32,10 @@ impl AuthorizedItems {
 
         for item in &self.0 {
             match item {
-                AuthorizedItem::PublicKey(key) => authorized_keys.push(key.clone()),
+                AuthorizedItem::PublicKey(key) => authorized_keys.insert(key.clone()),
                 AuthorizedItem::Identity(identity) => {
                     for key in identities.keys_for_identity(identity).unwrap_or_default() {
-                        authorized_keys.push(key);
+                        authorized_keys.insert(key);
                     }
                 }
             }
@@ -98,9 +98,21 @@ mod tests {
         items.push(AuthorizedItem::Identity("@bar".parse().unwrap()));
         items.push(AuthorizedItem::Identity("@baz".parse().unwrap()));
         assert_eq!(
-            items.collect_authorized_keys(&test_identities()).sorted(),
-            collect_keys(&["ssh-rsa foo", "ssh-rsa bar", "ssh-rsa baz"]).sorted()
+            items.collect_authorized_keys(&test_identities()),
+            collect_keys(&["ssh-rsa foo", "ssh-rsa bar", "ssh-rsa baz"])
         );
+    }
+
+    #[test]
+    fn unique_items() {
+        let mut items = AuthorizedItems::default();
+        items.push(AuthorizedItem::Identity("@foo".parse().unwrap()));
+        items.push(AuthorizedItem::Identity("@foo".parse().unwrap()));
+        items.push(AuthorizedItem::Identity("@bar".parse().unwrap()));
+        items.push(AuthorizedItem::PublicKey("ssh-rsa foo".parse().unwrap()));
+        items.push(AuthorizedItem::PublicKey("ssh-rsa bar".parse().unwrap()));
+        items.push(AuthorizedItem::PublicKey("ssh-rsa bar".parse().unwrap()));
+        assert_eq!(items.0.len(), 4);
     }
 
     fn test_identities() -> Identities {
@@ -119,7 +131,7 @@ mod tests {
     {
         let mut authorized_keys = AuthorizedKeys::default();
         for key in keys.into_iter() {
-            authorized_keys.push(key.to_string().parse().unwrap());
+            authorized_keys.insert(key.to_string().parse().unwrap());
         }
         authorized_keys
     }

@@ -44,14 +44,6 @@ impl fmt::Display for Identity {
 pub struct Identities(HashMap<String, AuthorizedKeys>);
 
 impl Identities {
-    /// Returns the identities in this collection.
-    pub fn identities(&self) -> Vec<Identity> {
-        self.0
-            .keys()
-            .map(|key| Identity::new(key.clone()))
-            .collect()
-    }
-
     /// Returns the identity for a key.
     pub fn identity_for_key(&self, key: &PublicKey) -> Option<Identity> {
         self.0
@@ -66,6 +58,7 @@ impl Identities {
     }
 
     /// Set the public keys for an identity.
+    #[cfg(test)]
     pub fn set_keys_for_identity(&mut self, keys: AuthorizedKeys, identity: &Identity) {
         self.0.insert(identity.identity().to_owned(), keys);
     }
@@ -166,7 +159,7 @@ mod tests {
 
     fn authorized_keys(key: &str) -> AuthorizedKeys {
         let mut keys = AuthorizedKeys::default();
-        keys.push(key.parse().unwrap());
+        keys.insert(key.parse().unwrap());
         keys
     }
 }
