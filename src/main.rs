@@ -242,11 +242,16 @@ impl Item {
     ) {
         let mut authorized_items = AuthorizedItems::default();
 
-        for key in authorized_keys {
+        for key in authorized_keys.iter().cloned() {
             if let Some(identity) = identities.identity_for_key(&key) {
-                // TODO: we should probably only add the full identity if all of its keys are present in `authorized_keys`
-                // otherwise we should only add this specific key
-                authorized_items.push(AuthorizedItem::Identity(identity));
+                // only add the full identity if all of its keys are contained in `authorized_keys`
+                // otherwise we only add this specific key
+                let keys_for_identity = identities.keys_for_identity(&identity).unwrap_or_default();
+                if authorized_keys.is_superset(&keys_for_identity) {
+                    authorized_items.push(AuthorizedItem::Identity(identity));
+                } else {
+                    authorized_items.push(AuthorizedItem::PublicKey(key));
+                }
             } else {
                 authorized_items.push(AuthorizedItem::PublicKey(key));
             }
