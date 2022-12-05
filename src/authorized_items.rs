@@ -4,27 +4,23 @@ use crate::{
     public_key::PublicKey,
 };
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
+use std::{collections::HashSet, str::FromStr};
 
-#[derive(Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Deserialize, Clone, Debug, Eq, PartialEq, Hash)]
 #[serde(untagged)]
 pub enum AuthorizedItem {
     Identity(Identity),
     PublicKey(PublicKey),
 }
 
-// we're using a `Vec` instead of a `HashSet` for storage
-// because we want to maintain any ordering of the authorized keys
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
 #[serde(transparent)]
-pub struct AuthorizedItems(Vec<AuthorizedItem>);
+pub struct AuthorizedItems(HashSet<AuthorizedItem>);
 
 impl AuthorizedItems {
-    /// Appends an item to the authorized items.
-    pub fn push(&mut self, item: AuthorizedItem) {
-        if !self.0.contains(&item) {
-            self.0.push(item)
-        }
+    /// Add an item to the authorized items.
+    pub fn insert(&mut self, item: AuthorizedItem) {
+        self.0.insert(item);
     }
 
     pub fn collect_authorized_keys(&self, identities: &Identities) -> AuthorizedKeys {
@@ -68,7 +64,7 @@ impl From<AuthorizedKeys> for AuthorizedItems {
         let mut authorized_items = AuthorizedItems::default();
 
         for key in keys {
-            authorized_items.0.push(AuthorizedItem::PublicKey(key));
+            authorized_items.0.insert(AuthorizedItem::PublicKey(key));
         }
 
         authorized_items
@@ -94,9 +90,9 @@ mod tests {
     #[test]
     fn authorized_keys() {
         let mut items = AuthorizedItems::default();
-        items.push(AuthorizedItem::Identity("@foo".parse().unwrap()));
-        items.push(AuthorizedItem::Identity("@bar".parse().unwrap()));
-        items.push(AuthorizedItem::Identity("@baz".parse().unwrap()));
+        items.insert(AuthorizedItem::Identity("@foo".parse().unwrap()));
+        items.insert(AuthorizedItem::Identity("@bar".parse().unwrap()));
+        items.insert(AuthorizedItem::Identity("@baz".parse().unwrap()));
         assert_eq!(
             items.collect_authorized_keys(&test_identities()),
             collect_keys(&["ssh-rsa foo", "ssh-rsa bar", "ssh-rsa baz"])
@@ -106,12 +102,12 @@ mod tests {
     #[test]
     fn unique_items() {
         let mut items = AuthorizedItems::default();
-        items.push(AuthorizedItem::Identity("@foo".parse().unwrap()));
-        items.push(AuthorizedItem::Identity("@foo".parse().unwrap()));
-        items.push(AuthorizedItem::Identity("@bar".parse().unwrap()));
-        items.push(AuthorizedItem::PublicKey("ssh-rsa foo".parse().unwrap()));
-        items.push(AuthorizedItem::PublicKey("ssh-rsa bar".parse().unwrap()));
-        items.push(AuthorizedItem::PublicKey("ssh-rsa bar".parse().unwrap()));
+        items.insert(AuthorizedItem::Identity("@foo".parse().unwrap()));
+        items.insert(AuthorizedItem::Identity("@foo".parse().unwrap()));
+        items.insert(AuthorizedItem::Identity("@bar".parse().unwrap()));
+        items.insert(AuthorizedItem::PublicKey("ssh-rsa foo".parse().unwrap()));
+        items.insert(AuthorizedItem::PublicKey("ssh-rsa bar".parse().unwrap()));
+        items.insert(AuthorizedItem::PublicKey("ssh-rsa bar".parse().unwrap()));
         assert_eq!(items.0.len(), 4);
     }
 

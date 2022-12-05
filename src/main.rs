@@ -248,12 +248,12 @@ impl Item {
                 // otherwise we only add this specific key
                 let keys_for_identity = identities.keys_for_identity(&identity).unwrap_or_default();
                 if authorized_keys.is_superset(&keys_for_identity) {
-                    authorized_items.push(AuthorizedItem::Identity(identity));
+                    authorized_items.insert(AuthorizedItem::Identity(identity));
                 } else {
-                    authorized_items.push(AuthorizedItem::PublicKey(key));
+                    authorized_items.insert(AuthorizedItem::PublicKey(key));
                 }
             } else {
-                authorized_items.push(AuthorizedItem::PublicKey(key));
+                authorized_items.insert(AuthorizedItem::PublicKey(key));
             }
         }
 
