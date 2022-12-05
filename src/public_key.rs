@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::fmt::{self};
+use std::fmt;
 use std::hash::Hash;
 use std::str::FromStr;
 
@@ -8,7 +8,7 @@ use std::str::FromStr;
 pub struct PublicKey(String);
 
 impl PublicKey {
-    /// Strips the comment from this public key, if any.
+    /// Returns the public key with the comment removed.
     fn strip_comment(&self) -> &str {
         self.0
             .match_indices(' ')

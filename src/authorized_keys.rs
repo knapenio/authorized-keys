@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::fmt::Write;
 use std::io::BufRead;
 
-type Result<T> = std::result::Result<T, anyhow::Error>;
+type Result<T> = anyhow::Result<T>;
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug, Eq, PartialEq)]
 #[serde(transparent)]

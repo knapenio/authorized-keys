@@ -14,7 +14,7 @@ use std::{
     io::{BufReader, Cursor},
 };
 
-type Result<T> = std::result::Result<T, anyhow::Error>;
+type Result<T> = anyhow::Result<T>;
 
 #[derive(Parser)]
 struct Cli {
