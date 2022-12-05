@@ -4,7 +4,11 @@ mod identity;
 mod public_key;
 mod ssh;
 
-use crate::{authorized_keys::AuthorizedKeys, identity::Identities, ssh::SshConnection};
+use crate::{
+    authorized_keys::AuthorizedKeys,
+    identity::{Identities, Identity},
+    ssh::SshConnection,
+};
 use authorized_items::{AuthorizedItem, AuthorizedItems};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -64,6 +68,8 @@ enum Error {
         user: String,
         path: String,
     },
+    #[error("undefined identity {0}")]
+    UndefinedIdentity(Identity),
 }
 
 fn main() -> Result<()> {
@@ -86,7 +92,7 @@ fn push_config(path: String) -> Result<()> {
     for (hostname, items) in config.hosts {
         for item in items {
             let connection = SshConnection::new(hostname.clone(), item.user.clone());
-            let authorized_keys = item.collect_authorized_keys(&identities);
+            let authorized_keys = item.collect_authorized_keys(&identities)?;
             write_authorized_keys(&connection, item.path, authorized_keys)?;
         }
     }
@@ -124,7 +130,7 @@ fn audit_config(path: String) -> Result<()> {
             println!("Auditing {} (via {})...", item.path, connection);
 
             let authorized_keys = read_authorized_keys(&connection, item.path.clone())?;
-            let known_keys = item.collect_authorized_keys(&identities);
+            let known_keys = item.collect_authorized_keys(&identities)?;
             let unknown_keys = authorized_keys.difference(&known_keys);
             let missing_keys = known_keys.difference(&authorized_keys);
 
@@ -231,8 +237,14 @@ fn write_authorized_keys(
 }
 
 impl Item {
-    pub fn collect_authorized_keys(&self, identities: &Identities) -> AuthorizedKeys {
-        self.authorized_items.collect_authorized_keys(identities)
+    pub fn collect_authorized_keys(&self, identities: &Identities) -> Result<AuthorizedKeys> {
+        let collect = self.authorized_items.collect_authorized_keys(identities);
+
+        if let Some(&identity) = collect.undefined_identities.first() {
+            return Err(Error::UndefinedIdentity(identity.clone()).into());
+        } else {
+            return Ok(collect.authorized_keys);
+        }
     }
 
     pub fn set_authorized_items(

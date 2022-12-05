@@ -17,27 +17,40 @@ pub enum AuthorizedItem {
 #[serde(transparent)]
 pub struct AuthorizedItems(HashSet<AuthorizedItem>);
 
+pub struct CollectAuthorizedKeys<'a> {
+    pub authorized_keys: AuthorizedKeys,
+    pub undefined_identities: Vec<&'a Identity>,
+}
+
 impl AuthorizedItems {
     /// Add an item to the authorized items.
     pub fn insert(&mut self, item: AuthorizedItem) {
         self.0.insert(item);
     }
 
-    pub fn collect_authorized_keys(&self, identities: &Identities) -> AuthorizedKeys {
+    pub fn collect_authorized_keys(&self, identities: &Identities) -> CollectAuthorizedKeys {
         let mut authorized_keys = AuthorizedKeys::default();
+        let mut undefined_identities = Vec::new();
 
         for item in &self.0 {
             match item {
                 AuthorizedItem::PublicKey(key) => authorized_keys.insert(key.clone()),
                 AuthorizedItem::Identity(identity) => {
-                    for key in identities.keys_for_identity(identity).unwrap_or_default() {
-                        authorized_keys.insert(key);
+                    if let Some(keys) = identities.keys_for_identity(identity) {
+                        for key in keys {
+                            authorized_keys.insert(key);
+                        }
+                    } else {
+                        undefined_identities.push(identity)
                     }
                 }
             }
         }
 
-        authorized_keys
+        CollectAuthorizedKeys {
+            authorized_keys,
+            undefined_identities,
+        }
     }
 }
 
@@ -88,14 +101,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn authorized_keys() {
+    fn collect_authorized_keys() {
         let mut items = AuthorizedItems::default();
         items.insert(AuthorizedItem::Identity("@foo".parse().unwrap()));
         items.insert(AuthorizedItem::Identity("@bar".parse().unwrap()));
         items.insert(AuthorizedItem::Identity("@baz".parse().unwrap()));
+
         assert_eq!(
-            items.collect_authorized_keys(&test_identities()),
+            items
+                .collect_authorized_keys(&test_identities())
+                .authorized_keys,
             collect_keys(&["ssh-rsa foo", "ssh-rsa bar", "ssh-rsa baz"])
+        );
+
+        assert_eq!(
+            items
+                .collect_authorized_keys(&test_identities())
+                .undefined_identities,
+            vec![&"@baz".parse::<Identity>().unwrap()]
         );
     }
 
