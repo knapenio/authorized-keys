@@ -20,7 +20,7 @@ Commands:
   help   Print this message or the help of the given subcommand(s)
 
 Options:
-  -c, --config <CONFIG>
+  -c, --config <CONFIG>  Path to the YAML configuration file
   -h, --help             Print help information
 ```
 

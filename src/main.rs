@@ -24,6 +24,7 @@ type Result<T> = anyhow::Result<T>;
 struct Cli {
     #[command(subcommand)]
     command: Command,
+    /// Path to the YAML configuration file
     #[arg(long, short)]
     config: String,
 }
